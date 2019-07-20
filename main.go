@@ -27,7 +27,7 @@ var searchs = map[string]string{
 
 func main() {
 	var crond = cron.New()
-	crond.AddFunc("@every 10m", func() {
+	crond.AddFunc("0 0 9 * * *", func() {
 		sendLrs()
 	})
 	go sendLrs()
