@@ -20,26 +20,30 @@ import (
 
 var searchs = map[string]string{
 	"baidu":  "https://m.baidu.com/s?ie=UTF-8&wd=%E7%8B%BC%E4%BA%BA%E6%9D%80",
-	"sougou": "https://wap.sogou.com/web/searchList.jsp?keyword=狼人杀",
+	"sougou": "https://m.sogou.com/web/searchList.jsp?uID=sadasd%3D&v=5&dp=2&pid=sogou-waps-23asd&w=1283&t=1563724067454&s_t=1563724073043&s_from=result_up&htprequery=lrs&keyword=%E7%8B%BC%E4%BA%BA%E6%9D%80&pg=webSearchList&rcer=gNz_a8U1sUAKzX9o&s=%E6%90%9C%E7%B4%A2&suguuid=61sad537956-a974-45b6-af2c-97d33769d3b6&sugsuv=dasd&sugtime=1553724073043",
 	"360":    "https://m.so.com/s?q=%E7%8B%BC%E4%BA%BA%E6%9D%80&src=suggest_history&sug_pos=0&sug=&srcg=home_next",
 	"shenma": "https://m.sm.cn/s?q=%E7%8B%BC%E4%BA%BA%E6%9D%80&from=smor&safe=1&snum=1",
 }
 
 func main() {
 	var crond = cron.New()
-	crond.AddFunc("0 0 9 * * *", func() {
+	crond.AddFunc("0 0 9 * * ?", func() {
 		sendLrs()
 	})
-	go sendLrs()
+	crond.Start()
+	// go sendLrs()
 	select {}
 }
 
 func sendLrs() {
+	log.Printf("sending to %s \n", os.Getenv("LRS_SEND_LIST"))
 	if err := shot(); err != nil {
 		log.Println(err)
+		return
 	}
 	if err := sendEmail(); err != nil {
 		log.Println(err)
+		return
 	}
 	log.Printf("send screenshot success at %s \n", time.Now().Format("2006/01/02 15:04:05"))
 }
