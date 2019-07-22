@@ -18,11 +18,19 @@ import (
 	"gopkg.in/gomail.v1"
 )
 
+const mAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1"
+
+const pcAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"
+
 var searchs = map[string]string{
 	"baidu":  "https://m.baidu.com/s?ie=UTF-8&wd=%E7%8B%BC%E4%BA%BA%E6%9D%80",
 	"sougou": "https://m.sogou.com/web/searchList.jsp?uID=sadasd%3D&v=5&dp=2&pid=sogou-waps-23asd&w=1283&t=1563724067454&s_t=1563724073043&s_from=result_up&htprequery=lrs&keyword=%E7%8B%BC%E4%BA%BA%E6%9D%80&pg=webSearchList&rcer=gNz_a8U1sUAKzX9o&s=%E6%90%9C%E7%B4%A2&suguuid=61sad537956-a974-45b6-af2c-97d33769d3b6&sugsuv=dasd&sugtime=1553724073043",
 	"360":    "https://m.so.com/s?q=%E7%8B%BC%E4%BA%BA%E6%9D%80&src=suggest_history&sug_pos=0&sug=&srcg=home_next",
 	"shenma": "https://m.sm.cn/s?q=%E7%8B%BC%E4%BA%BA%E6%9D%80&from=smor&safe=1&snum=1",
+
+	"pc_baidu":  "https://www.baidu.com/s?ie=utf-8&f=3&rsv_bp=1&tn=baidu&wd=%E7%8B%BC%E4%BA%BA%E6%9D%80",
+	"pc_sougou": "https://www.sogou.com/web?query=%E7%8B%BC%E4%BA%BA%E6%9D%80&_asf=www.sogou.com&_ast=&w=01019900&p=40040100&ie=utf8&from=index-nologin&s_from=index&sut=872&sst0=1563761139761&lkt=0%2C0%2C0&sugsuv=00563C730155C8CC5CEF84167D95B509&sugtime=1563761139761",
+	"pc_360":    "https://www.so.com/s?ie=utf-8&fr=none&src=360sou_newhome&q=%E7%8B%BC%E4%BA%BA%E6%9D%80",
 }
 
 func main() {
@@ -31,7 +39,7 @@ func main() {
 		sendLrs()
 	})
 	crond.Start()
-	// go sendLrs()
+	go sendLrs()
 	select {}
 }
 
@@ -85,11 +93,15 @@ func sendEmail() error {
 }
 
 func fullScreenshot(urlstr string, quality int64, res *[]byte) chromedp.Tasks {
+	userAgent := mAgent
+	if strings.HasPrefix(urlstr, "https://www") {
+		userAgent = pcAgent
+	}
 	return chromedp.Tasks{
 		chromedp.Navigate(urlstr),
 		network.Enable(),
 		network.SetExtraHTTPHeaders(network.Headers(map[string]interface{}{
-			"user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1",
+			"user-agent": userAgent,
 		})),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			// get layout metrics
