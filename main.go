@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -35,18 +36,29 @@ var searchs = map[string]string{
 
 func main() {
 	var crond = cron.New()
-	crond.AddFunc("0 30 6 * * ?", func() {
-		sendLrs()
+	crond.AddFunc("@every 20m", func() {
+		shot()
+	})
+	crond.AddFunc("0 30 18 * * ?", func() {
+		sendEmail()
 	})
 	crond.AddFunc("0 30 8 * * ?", func() {
-		sendLrs()
+		sendEmail()
 	})
 	crond.AddFunc("0 0 23 * * ?", func() {
-		sendLrs()
+		sendEmail()
 	})
 	crond.Start()
 	go sendLrs()
+	go runBot()
 	select {}
+}
+
+func runBot() {
+	cmd := exec.Command("python3", "./bot.py")
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Run()
 }
 
 func sendLrs() {
