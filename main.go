@@ -35,7 +35,7 @@ var searchs = map[string]string{
 
 func main() {
 	var crond = cron.New()
-	crond.AddFunc("0 30 9 * * ?", func() {
+	crond.AddFunc("0 30 6 * * ?", func() {
 		sendLrs()
 	})
 	crond.AddFunc("0 30 8 * * ?", func() {
