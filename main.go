@@ -1,27 +1,30 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
-	"math"
 	"os"
-	"os/exec"
-	"strings"
+	"path/filepath"
 	"time"
 
-	"github.com/chromedp/cdproto/emulation"
-	"github.com/chromedp/cdproto/network"
-	"github.com/chromedp/cdproto/page"
-	"github.com/chromedp/chromedp"
+	"github.com/tealeg/xlsx"
+
 	"github.com/robfig/cron"
-	"gopkg.in/gomail.v1"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/hugepizza/lrs/apps/baidu"
+	"github.com/hugepizza/lrs/apps/huawei"
+	"github.com/hugepizza/lrs/apps/meizu"
+	"github.com/hugepizza/lrs/apps/oppo"
+	"github.com/hugepizza/lrs/apps/threesixzero"
+	"github.com/hugepizza/lrs/apps/tx"
+	"github.com/hugepizza/lrs/apps/vivo"
+	"github.com/hugepizza/lrs/apps/xiaomi"
+	"github.com/hugepizza/lrs/types"
+	"github.com/hugepizza/lrs/util"
+	yaml "gopkg.in/yaml.v2"
 )
-
-const mAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1"
-
-const pcAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36"
 
 var searchs = map[string]string{
 	"baidu":  "https://m.baidu.com/s?ie=UTF-8&wd=%E7%8B%BC%E4%BA%BA%E6%9D%80",
@@ -34,127 +37,192 @@ var searchs = map[string]string{
 	"pc_360":    "https://www.so.com/s?ie=utf-8&fr=none&src=360sou_newhome&q=%E7%8B%BC%E4%BA%BA%E6%9D%80",
 }
 
+type config struct {
+	Email struct {
+		Sender    string   `yaml:"sender"`
+		Code      string   `yaml:"code"`
+		Server    string   `yaml:"server"`
+		Port      int      `yaml:"port"`
+		Receivers []string `yaml:"receivers"`
+	} `yaml:"email"`
+	BaiduAI struct {
+		Key    string `yaml:"key"`
+		Secret string `yaml:"secret"`
+	} `yaml:"baiduai"`
+}
+
+var conf = &config{}
+
+func init() {
+	bs, err := ioutil.ReadFile("./conf.yaml")
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	err = yaml.Unmarshal(bs, conf)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+}
+
 func main() {
 	var crond = cron.New()
-	crond.AddFunc("@every 20m", func() {
-		shot()
-	})
 	crond.AddFunc("0 30 18 * * ?", func() {
-		sendEmail()
+		run()
 	})
 	crond.AddFunc("0 30 8 * * ?", func() {
-		sendEmail()
+		run()
 	})
 	crond.AddFunc("0 0 23 * * ?", func() {
-		sendEmail()
+		run()
 	})
 	crond.Start()
-	go sendLrs()
-	go runBot()
+
+	go run()
+
 	select {}
 }
 
-func runBot() {
-	cmd := exec.Command("python3", "./bot.py")
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	cmd.Run()
-}
-
-func sendLrs() {
-	log.Printf("sending to %s \n", os.Getenv("LRS_SEND_LIST"))
-	if err := shot(); err != nil {
-		log.Println(err)
-		return
+func run() {
+	files := searchShot(searchs)
+	appRankFile := appRank()
+	if appRankFile != "" {
+		files = append(files, appRankFile)
 	}
-	if err := sendEmail(); err != nil {
-		log.Println(err)
-		return
-	}
-	log.Printf("send screenshot success at %s \n", time.Now().Format("2006/01/02 15:04:05"))
-}
-
-func shot() error {
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-	for name, url := range searchs {
-		var buf []byte
-		if err := chromedp.Run(ctx, fullScreenshot(url, 100, &buf)); err != nil {
-			return err
+	defer func() {
+		for _, f := range files {
+			os.Remove(f)
 		}
-		if err := ioutil.WriteFile(name+".png", buf, 0644); err != nil {
-			return err
-		}
-	}
-	return nil
+	}()
+	shotAndsend(files)
+	logrus.Info("send success")
 }
 
-func sendEmail() error {
-	msg := gomail.NewMessage()
-	msg.SetHeader("From", os.Getenv("MY_QQMAIL_ADDR"))
-	msg.SetHeader("To", strings.Split(os.Getenv("LRS_SEND_LIST"), "|")...)
-	msg.SetHeader("Subject", fmt.Sprintf("%s 狼人杀搜索引擎关键字监控\n", time.Now().Format("2006年01月02日15点04分")))
+func shotAndsend(attachFiles []string) error {
+	return util.SendEmail(conf.Email.Sender,
+		conf.Email.Code,
+		conf.Email.Receivers,
+		"狼人杀app搜索引擎关键字监控",
+		attachFiles,
+		conf.Email.Server,
+		conf.Email.Port)
+}
 
-	for k := range searchs {
-		f, err := gomail.OpenFile(k + ".png")
+func searchShot(data map[string]string) []string {
+	files := []string{}
+	for k, v := range data {
+		fn := filepath.Join(os.TempDir(), fmt.Sprintf("%s.png", k))
+		err := util.Shot(fn, v)
 		if err != nil {
-			return err
+			continue
 		}
-		msg.Attach(f)
+		files = append(files, fn)
 	}
-
-	mailer := gomail.NewMailer("smtp.qq.com", os.Getenv("MY_QQMAIL_ADDR"), os.Getenv("MY_QQMAIL_CODE"), 465)
-	if err := mailer.Send(msg); err != nil {
-		return err
-	}
-	return nil
+	return files
 }
 
-func fullScreenshot(urlstr string, quality int64, res *[]byte) chromedp.Tasks {
-	userAgent := mAgent
-	if strings.HasPrefix(urlstr, "https://www") {
-		userAgent = pcAgent
+func appRank() string {
+	ranks := make(map[string]*types.RankInfo)
+	logrus.Info("request 华为")
+	rank, err := huawei.GetRank()
+	if err != nil {
+		logrus.Error("华为", err)
+	} else {
+		ranks["华为"] = rank
 	}
-	return chromedp.Tasks{
-		chromedp.Navigate(urlstr),
-		network.Enable(),
-		network.SetExtraHTTPHeaders(network.Headers(map[string]interface{}{
-			"user-agent": userAgent,
-		})),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// get layout metrics
-			_, _, contentSize, err := page.GetLayoutMetrics().Do(ctx)
-			if err != nil {
-				return err
-			}
-
-			width, height := int64(math.Ceil(contentSize.Width)), int64(math.Ceil(contentSize.Height))
-
-			// force viewport emulation
-			err = emulation.SetDeviceMetricsOverride(width, height, 1, false).
-				WithScreenOrientation(&emulation.ScreenOrientation{
-					Type:  emulation.OrientationTypePortraitPrimary,
-					Angle: 0,
-				}).
-				Do(ctx)
-			if err != nil {
-				return err
-			}
-
-			// capture screenshot
-			*res, err = page.CaptureScreenshot().
-				WithQuality(quality).
-				WithClip(&page.Viewport{
-					X:      contentSize.X,
-					Y:      contentSize.Y,
-					Width:  contentSize.Width,
-					Height: contentSize.Height,
-					Scale:  1,
-				}).Do(ctx)
-			if err != nil {
-				return err
-			}
-			return nil
-		}),
+	logrus.Info("request 小米")
+	rank2, err := xiaomi.GetRank()
+	if err != nil {
+		logrus.Error("小米", err)
+	} else {
+		ranks["小米"] = rank2
 	}
+	logrus.Info("request 百度")
+	rank3, err := baidu.GetRank()
+	if err != nil {
+		logrus.Error("百度", err)
+	} else {
+		ranks["百度"] = rank3
+	}
+	logrus.Info("request 应用宝")
+	rank4, err := tx.GetRank()
+	if err != nil {
+		logrus.Error("应用宝", err)
+	} else {
+		ranks["应用宝"] = rank4
+	}
+	logrus.Info("request oppo")
+	rank5, err := oppo.GetRank()
+	if err != nil {
+		logrus.Error("oppo", err)
+	} else {
+		ranks["oppo"] = rank5
+	}
+	logrus.Info("request 360")
+	rank6, err := threesixzero.GetRank()
+	if err != nil {
+		logrus.Error("360", err)
+	} else {
+		ranks["360"] = rank6
+	}
+	logrus.Info("request 魅族")
+	rank7, err := meizu.GetRank()
+	if err != nil {
+		logrus.Error("魅族", err)
+	} else {
+		ranks["魅族"] = rank7
+	}
+	logrus.Info("request vivo")
+	rank8, err := vivo.GetRank()
+	if err != nil {
+		logrus.Error("vivo", err)
+	} else {
+		ranks["vivo"] = rank8
+	}
+	return genAppRankXlsx(ranks)
+}
+
+func genAppRankXlsx(data map[string]*types.RankInfo) string {
+	file := xlsx.NewFile()
+	sheet, err := file.AddSheet("Sheet1")
+	if err != nil {
+		fmt.Printf(err.Error())
+	}
+	row := sheet.AddRow()
+	cell0 := row.AddCell()
+	cell0.Value = "平台"
+	cell1 := row.AddCell()
+	cell1.Value = "官狼排名"
+	cell2 := row.AddCell()
+	cell2.Value = "红狼排名"
+	cell3 := row.AddCell()
+	cell3.Value = "红狼下载"
+	for k, v := range data {
+		row := sheet.AddRow()
+		cell0 := row.AddCell()
+		cell0.Value = k
+		cell1 := row.AddCell()
+		if v.LrsRank > 0 {
+			cell1.Value = fmt.Sprintf("%d", v.LrsRank)
+		} else {
+			if k == "魅族" {
+				cell1.Value = "无法追踪"
+			} else {
+				cell1.Value = "无"
+			}
+		}
+		cell2 := row.AddCell()
+		if v.MlRank > 0 {
+			cell2.Value = fmt.Sprintf("%d", v.MlRank)
+		} else {
+			cell2.Value = "无"
+		}
+		cell3 := row.AddCell()
+		cell3.Value = v.MlURL
+	}
+	path := filepath.Join(os.TempDir(), time.Now().Format("lrs_2006010215")+".xlsx")
+	err = file.Save(path)
+	if err != nil {
+		return ""
+	}
+	return path
 }
